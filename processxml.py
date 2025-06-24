@@ -31,6 +31,10 @@ SOURCES = {
         "headers": {
             "User-Agent": "Mozilla/5.0"
         },
+    },
+    "spc": {
+        "url": "https://b2b.spechurt.pl/xml_heavy_export.php?key=0799b39b6a9efecdd2c4a8e31f9b15db",
+        "headers": {}
     }
 }
 
@@ -134,6 +138,54 @@ def parse_kolba(path):
 
     return products
 
+# Przetwarzanie SPC
+def parse_spc(path):
+    tree = ET.parse(path)
+    root = tree.getroot()
+    products = []
+
+    for produkt in root.findall("produkt"):
+        base = dict.fromkeys(COLUMNS, "")
+        base["produkt_id"] = produkt.findtext("id")
+        base["produkt_nazwa"] = produkt.findtext("nazwa")
+        base["produkt_sku"] = produkt.findtext("kzs")
+        base["produkt_ean"] = produkt.findtext("ean")
+        base["opis"] = produkt.findtext("dlugi_opis")
+        base["cena"] = produkt.findtext("cena_zewnetrzna_hurt")
+        base["stawka_vat"] = produkt.findtext("vat")
+        base["ilosc"] = produkt.findtext("stan_magazynowy") or "0"
+        base["waga"] = produkt.findtext("waga")
+
+        # Clean the HTML content in the description
+        opis = produkt.findtext("dlugi_opis")
+        base["opis"] = clean_html(opis) if opis else ""
+
+        # Zdjęcia
+        photos = [zdjecie.text for zdjecie in produkt.find("zdjecia").findall("zdjecie")]
+        for i in range(16):
+            col = "zdjecie" if i == 0 else f"zdjecie_dodatkowe_{i}"
+            base[col] = photos[i] if i < len(photos) else ""
+
+        # Producent
+        base["producent_nazwa"] = produkt.findtext("producent")
+
+        # Warianty jako osobne produkty
+        warianty = produkt.find("warianty")
+        if warianty is not None and len(warianty) > 0:
+            for wariant in warianty.findall("wariant"):
+                p = base.copy()
+                p["produkt_id"] = wariant.findtext("wariant_id")
+                p["produkt_nazwa"] = base["produkt_nazwa"]
+                p["produkt_sku"] = wariant.findtext("wariant_kzs") or base["produkt_sku"]
+                p["produkt_ean"] = wariant.findtext("wariant_ean") or base["produkt_ean"]
+                p["cena"] = wariant.findtext("cena_zewnetrzna_hurt") or base["cena"]
+                p["ilosc"] = wariant.findtext("wariant_stan_magazynowy") or base["ilosc"]
+                products.append(p)
+        else:
+            products.append(base)
+
+    return products
+
 # Uruchomienie
 def main():
     for name, info in SOURCES.items():
@@ -144,6 +196,8 @@ def main():
             data = parse_togo(xml_path)
         elif name == "kolba":
             data = parse_kolba(xml_path)
+        elif name == "spc":
+            data = parse_spc(xml_path)
         else:
             continue
 
